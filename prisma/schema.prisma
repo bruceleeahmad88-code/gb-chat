@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  password     String
+  name         String
+  about        String   @default("Hey there! I am using GB Chat.")
+  avatarColor  String   @default("0ea47a")
+  avatarEmoji  String   @default("")
+  avatarUrl    String?  // uploaded/generated profile photo (data URL or /avatars/*.jpg)
+  isBot        Boolean  @default(false)
+  inviteCode   String?  @unique // personal invite code — only invited people become contacts
+  gbNumber     String?  @unique // permanent GB number — WhatsApp-style identity: share it, friends add you with it
+  lastSeen     DateTime @default(now())
+  isOnline     Boolean  @default(false)
+  settingsJson String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  participations  ChatParticipant[]
+  messages        Message[]
+  statuses        StatusUpdate[]
+  statusViews     StatusView[]
+  callsMade       CallLog[]         @relation("caller")
+  callsReceived   CallLog[]         @relation("receiver")
+  sessions        Session[]
+  contactsAdded   Contact[]         @relation("contactOwner")
+  addedBy         Contact[]         @relation("contactLinks")
+}
+
+/** Private per-account contact list — nobody appears anywhere unless invited/linked here */
+model Contact {
+  id         String   @id @default(cuid())
+  ownerId    String   // whose contact list this entry belongs to
+  userId     String   // the contact (person or bot)
+  favourite  Boolean  @default(false)
+  customName String?  // per-owner display name override (e.g. rename the bot)
+  createdAt  DateTime @default(now())
+
+  owner User @relation("contactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  user  User @relation("contactLinks", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, userId])
+  @@index([ownerId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Chat {
+  id        String   @id @default(cuid())
+  type      String   // "individual" | "group"
+  name      String?  // group name
+  about     String?  // group description
+  emoji     String   @default("👥") // group avatar emoji
+  color     String   @default("0ea47a")
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ChatParticipant[]
+  messages     Message[]
+}
+
+model ChatParticipant {
+  id         String    @id @default(cuid())
+  chatId     String
+  userId     String
+  role       String    @default("member") // "admin" | "member"
+  pinned     Boolean   @default(false)
+  muted      Boolean   @default(false)
+  archived   Boolean   @default(false)
+  lastReadAt DateTime  @default(now())
+  joinedAt   DateTime  @default(now())
+  chat       Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  chatId         String
+  senderId       String
+  type           String   @default("text") // text | image | audio | document | location | contact | system
+  content        String   @default("")
+  mediaSeed      String?  // for generated media placeholders
+  mediaName      String?
+  mediaMeta      String?  // duration / size etc
+  status         String   @default("sent") // sent | delivered | read
+  starred        Boolean  @default(false)
+  deletedForAll  Boolean  @default(false)
+  deletedForIds  String   @default("") // comma separated user ids
+  replyToId      String?
+  replyToContent String?
+  replyToSender  String?
+  replyToType    String?
+  createdAt      DateTime @default(now())
+  editedAt       DateTime?
+
+  chat    Chat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender  User    @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
+model StatusUpdate {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String   @default("text") // text | image
+  content    String   @default("")
+  mediaSeed  String?
+  bg         String   @default("0ea47a")
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views      StatusView[]
+
+  @@index([userId, expiresAt])
+}
+
+model StatusView {
+  id        String   @id @default(cuid())
+  statusId  String
+  viewerId  String
+  reaction  String? // emoji reaction e.g. ❤️ 😂 😮 🥲 🙏 👍
+  viewedAt  DateTime @default(now())
+  status    StatusUpdate @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  viewer    User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+
+  @@unique([statusId, viewerId])
+}
+
+model CallLog {
+  id         String   @id @default(cuid())
+  callerId   String
+  receiverId String
+  type       String   @default("audio") // audio | video
+  outcome    String   @default("ended") // missed | outgoing | incoming | declined | ended
+  duration   Int      @default(0) // seconds
+  createdAt  DateTime @default(now())
+  caller     User     @relation("caller", fields: [callerId], references: [id], onDelete: Cascade)
+  receiver   User     @relation("receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([callerId, createdAt])
+  @@index([receiverId, createdAt])
+}
+
+/** Uploaded media (photos, videos, voice notes, documents) stored IN the database.
+ *  Cloud hosts (Render free etc.) have an ephemeral disk — the DB is the only
+ *  durable place. Legacy sandbox files on disk are still served via fallback. */
+model GbMedia {
+  id        String   @id @default(cuid())
+  name      String   @unique // stored filename, e.g. "mvni64mga350d3f4.gif"
+  mime      String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+}

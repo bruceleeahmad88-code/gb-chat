@@ -1,0 +1,25 @@
+# Render Blueprint — GB Chat (100% free deploy)
+# Ye file Render ko batati hai ke app kaise build/run hota hai.
+# Deploy: render.com -> New + -> Blueprint -> apna repo select karein
+# -> DATABASE_URL me Neon ki connection string paste karein -> Apply.
+services:
+  - type: web
+    name: gb-chat
+    runtime: node
+    plan: free
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma db push --skip-generate --accept-data-loss && node server.js
+    healthCheckPath: /api/time
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      # Socket SAME origin par chalega (server.js me merged hai)
+      - key: NEXT_PUBLIC_SOCKET_URL
+        value: "/"
+      - key: NEXT_PUBLIC_SOCKET_PATH
+        value: "/socket.io"
+      # Neon se mili connection string yahan paste hogi (Render deploy ke waqt poochega)
+      - key: DATABASE_URL
+        sync: false

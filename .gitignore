@@ -1,0 +1,20 @@
+# dependencies / build
+node_modules/
+.next/
+out/
+next-env.d.ts.bak
+
+# local env — secrets kabhi GitHub par na dalein
+.env
+.env*.local
+
+# logs & local data
+*.log
+dev.log
+server.log
+db/
+uploads/
+
+# os
+.DS_Store
+Thumbs.db
